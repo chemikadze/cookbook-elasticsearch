@@ -28,7 +28,7 @@ end
 bash "remove the elasticsearch user home" do
   user    'root'
   code    "rm -rf  #{node.elasticsearch[:dir]}/elasticsearch"
-  not_if  { ::File.symlink?("#{node.elasticsearch[:dir]}/elasticsearch") } 
+  not_if  { ::File.symlink?("#{node.elasticsearch[:dir]}/elasticsearch") }
   only_if { ::File.directory?("#{node.elasticsearch[:dir]}/elasticsearch") }
 end
 
@@ -40,6 +40,17 @@ end
     owner node.elasticsearch[:user] and group node.elasticsearch[:user] and mode 0755
     recursive true
     action :create
+  end
+end
+
+# Create custom system directories. If already exists, leave as-is.
+#
+[ node.elasticsearch[:initd_path], node.elasticsearch[:bin_path] ].each do |path|
+  directory path do
+    owner node.elasticsearch[:user] and group node.elasticsearch[:user] and mode 0755
+    recursive true
+    action :create
+    not_if { ::File.exists?(path) }
   end
 end
 
@@ -57,20 +68,29 @@ end
 
 # Create service
 #
-template "/etc/init.d/elasticsearch" do
+template "#{node.elasticsearch[:initd_path]}/elasticsearch" do
   source "elasticsearch.init.erb"
   owner 'root' and mode 0755
 end
 
 service "elasticsearch" do
   supports :status => true, :restart => true
-  action [ :enable ]
+  if node.elasticsearch[:initd_path] == "/etc/init.d" then
+    action [ :enable ]
+  else
+    # fallback to simple provider when using custom location
+    start_command "#{node.elasticsearch[:initd_path]}/elasticsearch start"
+    stop_command "#{node.elasticsearch[:initd_path]}/elasticsearch stop"
+    restart_command "#{node.elasticsearch[:initd_path]}/elasticsearch restart"
+    status_command "#{node.elasticsearch[:initd_path]}/elasticsearch status"
+  end
 end
 
 # Download, extract, symlink the elasticsearch libraries and binaries
 #
 ark_prefix_root = node.elasticsearch[:dir] || node.ark[:prefix_root]
 ark_prefix_home = node.elasticsearch[:dir] || node.ark[:prefix_home]
+ark_prefix_bin  = node.elasticsearch[:bin_path] || node.ark[:prefix_bin]
 
 ark "elasticsearch" do
   url   node.elasticsearch[:download_url]
@@ -81,6 +101,7 @@ ark "elasticsearch" do
   checksum node.elasticsearch[:checksum]
   prefix_root   ark_prefix_root
   prefix_home   ark_prefix_home
+  prefix_bin    ark_prefix_bin
 
   notifies :start,   'service[elasticsearch]' unless node.elasticsearch[:skip_start]
   notifies :restart, 'service[elasticsearch]' unless node.elasticsearch[:skip_restart]
@@ -104,6 +125,7 @@ bash "enable user limits" do
   END
 
   not_if { ::File.read("/etc/pam.d/su").match(/^session    required   pam_limits\.so/) }
+  only_if { ::File.writable?("/etc/pam.d/su") }
 end
 
 log "increase limits for the elasticsearch user"
@@ -113,6 +135,7 @@ file "/etc/security/limits.d/10-elasticsearch.conf" do
     #{node.elasticsearch.fetch(:user, "elasticsearch")}     -    nofile    #{node.elasticsearch[:limits][:nofile]}
     #{node.elasticsearch.fetch(:user, "elasticsearch")}     -    memlock   #{node.elasticsearch[:limits][:memlock]}
   END
+  only_if { ::File.writable?("/etc/security/limits.d/10-elasticsearch.conf") }
 end
 
 # Create file with ES environment variables

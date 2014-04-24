@@ -36,6 +36,9 @@ default.elasticsearch[:path][:logs] = "/usr/local/var/log/elasticsearch"
 default.elasticsearch[:pid_path]  = "/usr/local/var/run"
 default.elasticsearch[:pid_file]  = "#{node.elasticsearch[:pid_path]}/#{node.elasticsearch[:node][:name].to_s.gsub(/\W/, '_')}.pid"
 
+default.elasticsearch[:bin_path]  =   "/usr/local/bin"
+default.elasticsearch[:initd_path]  = "/etc/init.d"
+
 # === MEMORY
 #
 # Maximum amount of memory to use is automatically computed as one half of total available memory on the machine.
